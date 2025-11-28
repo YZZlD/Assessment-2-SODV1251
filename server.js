@@ -1,128 +1,177 @@
 const express = require('express');
 const sql = require('mssql');
-const nodemailer = require('nodemailer');
-const fs = require('fs');
 const passport = require('passport');
-const expressValidator = require('express-validator');
 const LocalStrategy = require('passport-local');
-const config = require('./config.js');
-const path = require('path');
 const session = require('express-session');
 const bcrypt = require('bcrypt');
 const cors = require('cors');
-
+const path = require('path');
+const config = require('./config.js');
+const validator = require('express-validator')
 
 const saltRounds = 10;
-
 const app = express();
-app.use(cors());
 
+// Middleware
+app.use(cors({
+    origin: 'http://localhost:8080',
+    credentials: true
+}));
 app.use(express.static('public'));
-
-app.use(express.urlencoded({extended: true}));
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
+// Session Configuration
 app.use(session({
-  secret: 'your-secret-key',
-  resave: false,
-  saveUninitialized: true,
-  //cookie: { secure: false} //For production
-  cookie: { secure: false ,httpOnly: false} // For development only
+    secret: 'your-secret-key',
+    resave: false,
+    saveUninitialized: false,
+    cookie: { secure: false, httpOnly: true }
 }));
 
+// Passport Configuration
 app.use(passport.initialize());
 app.use(passport.session());
 
+// Database Pool
 const poolPromise = new sql.ConnectionPool(config)
     .connect()
     .then(pool => {
         console.log('Connected to MSSQL');
         return pool;
     })
-    .catch(err => console.log('Database connection failed! Bad config: ', err));
+    .catch(err => console.log('Database connection failed:', err));
 
+// Passport Local Strategy
 passport.use(new LocalStrategy(async (username, password, done) => {
-    const pool = await poolPromise;
-    const user = await pool.query(`SELCT * FROM Users WHERE Username == ${username}`).recordsets[0];
-    console.log(user);
-    console.log('PASSPORT MIDDLEWARE RUNNING.');
-    
-    if(!user) return done(null, false, {message: "Username not found."});
-    
-    await bcrypt.compare(password, user.Password, (err, result) => {
-        if(err) throw err;
-        if(result) return done(null, user);
-        return done(null, false, {message: "Incorrect password."});
-    });
+    try {
+        const pool = await poolPromise;
+        const request = pool.request();
+        request.input('username', sql.VarChar, username);
+        const result = await request.query('SELECT * FROM Users WHERE Username = @username');
+
+        if (result.recordset.length === 0) {
+            return done(null, false, { message: 'User not found' });
+        }
+
+        const user = result.recordset[0];
+        const isValid = await bcrypt.compare(password, user.Password);
+
+        if (!isValid) {
+            return done(null, false, { message: 'Incorrect password' });
+        }
+
+        return done(null, user);
+    } catch (err) {
+        return done(err);
+    }
 }));
 
+// Serialize User
 passport.serializeUser((user, done) => {
-    done(null, user.username);
+    done(null, user.Id);
 });
 
-passport.deserializeUser(async (username, done) => {
-    const pool = await poolPromise;
-    const deserializedUser = await pool.query(`SELECT * FROM Users WHERE Username == ${username}`).recordsets[0];
-    if(!deserializedUser) return done('User not found', null);
-    return done(null, deserializedUser);
-});
+// Deserialize User
+passport.deserializeUser(async (Id, done) => {
+    try {
+        const pool = await poolPromise;
+        const request = pool.request();
+        request.input('Id', sql.Int, Id);
+        const result = await request.query('SELECT * FROM Users WHERE Id = @Id');
 
-function isAuthenticated(req, res, next){
-  if(req.isAuthenticated()) return next();
-  res.status(401).json({message: "User not found."});
-};
+        if (result.recordset.length === 0) {
+            return done(null, false);
+        }
 
-app.get('/login', async (req, res) => {
-    res.sendFile(path.join(__dirname + '/public' + '/html' + '/login.html'));
-});
-
-app.post('/login', async (req, res) => {
-    passport.authenticate('local', 
-    {
-        successRedirect: '/',
-        failureRedirect: '/login',
-    }), (req, res) => {
-        console.log("FAILURE");
-        res.redirect('login');
+        return done(null, result.recordset[0]);
+    } catch (err) {
+        return done(err);
     }
 });
 
-app.get('/signup', async (req, res) => {
-    res.sendFile(path.join(__dirname + '/public' + '/html' + '/signup.html'));
+// Middleware: Check Authentication
+function isAuthenticated(req, res, next) {
+    if (req.isAuthenticated()) {
+        return next();
+    }
+    res.status(401).json({ message: 'Not authenticated' });
+}
+
+// Routes
+app.get('/', (req, res) => {
+    res.json({
+        message: 'AUTH SERVER',
+        authenticated: req.isAuthenticated(),
+        user: req.user || null
+    });
 });
 
-app.post('/signup', async (req, res) => {
-    const {username, password} = req.body;
-    const hashedPass = await bcrypt.hash(password, saltRounds);
-
-    const pool = await poolPromise;
-    const request = pool.request();
-
-    request.input('username', sql.VarChar, username);
-    request.input('password', sql.VarChar, hashedPass);
-    
-    await request.query("INSERT INTO Users (Username, Password) VALUES (@username, @password)");
+app.get('/login', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
 
-app.get('/', isAuthenticated, async (req, res) => {
-    const pool = await poolPromise;
-    const result = await pool.query('SELECT * FROM Events');
-    console.log(result);
-    res.status(200).json(result.recordsets[0]);
+app.post('/login', (req, res, next) => {
+    passport.authenticate('local', (err, user, info) => {
+        if (err) {
+            return res.status(500).json({ message: 'Server error' });
+        }
+        if (!user) {
+            return res.status(401).json({ message: info?.message || 'Authentication failed' });
+        }
+        req.logIn(user, (err) => {
+            if (err) {
+                return res.status(500).json({ message: 'Login failed' });
+            }
+            return res.json({ message: 'Login successful', user: req.user });
+        });
+    })(req, res, next);
+});
+
+app.get('/signup', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'signup.html'));
+});
+
+app.post('/signup', [validator.check('username').isLength({min: 5}), validator.check('password').isLength({min: 5})], async (req, res) => {
+    try {
+        const errors = validator.validationResult(req);
+        if(!errors.isEmpty()) return res.status(400).json({errors: errors.array()})
+        const { username, password } = req.body;
+
+        const hashedPass = await bcrypt.hash(password, saltRounds);
+        const pool = await poolPromise;
+        const request = pool.request();
+
+        request.input('username', sql.VarChar, username);
+        request.input('password', sql.VarChar, hashedPass);
+
+        await request.query('INSERT INTO Users (Username, Password) VALUES (@username, @password)');
+        res.status(201).json({ message: 'User created successfully' });
+    } catch (err) {
+        res.status(500).json({ message: 'Signup failed', error: err.message });
+    }
 });
 
 app.get('/logout', (req, res) => {
-    req.session.destroy((err) => {
-        if(err) return res.send('Error logging out.');
-    })
-    res.send('Loggout out successfully. <a href="/login">Click here to login in again</a>');
-})
-
-app.use((err, req, res, next) => {
-    console.error(err);
-    res.status(500).send("Something went wrong!");
+    req.logout((err) => {
+        if (err) {
+            return res.status(500).json({ message: 'Logout failed' });
+        }
+        res.json({ message: 'Logged out successfully' });
+    });
 });
 
-const server = app.listen(8080, () => {
-    console.log("Server is listening on port 8080");
-})
+app.get('/profile', isAuthenticated, (req, res) => {
+    res.json({ message: 'This is a protected route', user: req.user });
+});
+
+// Error Handler
+app.use((err, req, res, next) => {
+    console.error(err);
+    res.status(500).json({ message: 'Server error', error: err.message });
+});
+
+const PORT = 8080;
+app.listen(PORT, () => {
+    console.log(`Server listening on port ${PORT}`);
+});
