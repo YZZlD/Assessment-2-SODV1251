@@ -8,6 +8,7 @@ const cors = require('cors');
 const path = require('path');
 const config = require('./config.js');
 const validator = require('express-validator')
+const transporter = require('./transporter')
 
 const saltRounds = 10;
 const app = express();
@@ -99,12 +100,28 @@ function isAuthenticated(req, res, next) {
 }
 
 // Routes
-app.get('/', (req, res) => {
+app.get('/', async (req, res) => {
     res.json({
         message: 'AUTH SERVER',
         authenticated: req.isAuthenticated(),
         user: req.user || null
     });
+
+    let message = {
+        from: 'Sender Name <sender@example.com>',
+        to: 'Recipient <recipient@example.com>',
+        subject: 'Nodemailer is unicode friendly ✔',
+        text: 'Hello to myself!',
+        html: '<p><b>Hello</b> to myself!</p>'
+    }
+    await transporter.sendMail(message, (err, info) => {
+        if(err) {
+            console.log('Error occured. ' + err.message);
+        }
+
+        console.log('Message sent: %s', info.messageId);
+        console.log('Preview URL: %s', nodemailer.getTestMessageUrl(info));
+    })
 });
 
 app.get('/login', (req, res) => {
