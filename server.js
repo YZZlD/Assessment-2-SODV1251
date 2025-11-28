@@ -1,7 +1,5 @@
 const express = require('express');
 const sql = require('mssql');
-const passport = require('passport');
-const LocalStrategy = require('passport-local');
 const session = require('express-session');
 const bcrypt = require('bcrypt');
 const cors = require('cors');
@@ -9,20 +7,20 @@ const path = require('path');
 const config = require('./config.js');
 const validator = require('express-validator')
 const transporter = require('./transporter')
+const passport = require('./passportConfig')
 
 const saltRounds = 10;
 const app = express();
 
-// Middleware
 app.use(cors({
     origin: 'http://localhost:8080',
     credentials: true
 }));
+
 app.use(express.static('public'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Session Configuration
 app.use(session({
     secret: 'your-secret-key',
     resave: false,
@@ -30,11 +28,9 @@ app.use(session({
     cookie: { secure: false, httpOnly: true }
 }));
 
-// Passport Configuration
 app.use(passport.initialize());
 app.use(passport.session());
 
-// Database Pool
 const poolPromise = new sql.ConnectionPool(config)
     .connect()
     .then(pool => {
@@ -43,55 +39,6 @@ const poolPromise = new sql.ConnectionPool(config)
     })
     .catch(err => console.log('Database connection failed:', err));
 
-// Passport Local Strategy
-passport.use(new LocalStrategy(async (username, password, done) => {
-    try {
-        const pool = await poolPromise;
-        const request = pool.request();
-        request.input('username', sql.VarChar, username);
-        const result = await request.query('SELECT * FROM Users WHERE Username = @username');
-
-        if (result.recordset.length === 0) {
-            return done(null, false, { message: 'User not found' });
-        }
-
-        const user = result.recordset[0];
-        const isValid = await bcrypt.compare(password, user.Password);
-
-        if (!isValid) {
-            return done(null, false, { message: 'Incorrect password' });
-        }
-
-        return done(null, user);
-    } catch (err) {
-        return done(err);
-    }
-}));
-
-// Serialize User
-passport.serializeUser((user, done) => {
-    done(null, user.Id);
-});
-
-// Deserialize User
-passport.deserializeUser(async (Id, done) => {
-    try {
-        const pool = await poolPromise;
-        const request = pool.request();
-        request.input('Id', sql.Int, Id);
-        const result = await request.query('SELECT * FROM Users WHERE Id = @Id');
-
-        if (result.recordset.length === 0) {
-            return done(null, false);
-        }
-
-        return done(null, result.recordset[0]);
-    } catch (err) {
-        return done(err);
-    }
-});
-
-// Middleware: Check Authentication
 function isAuthenticated(req, res, next) {
     if (req.isAuthenticated()) {
         return next();
@@ -99,7 +46,6 @@ function isAuthenticated(req, res, next) {
     res.status(401).json({ message: 'Not authenticated' });
 }
 
-// Routes
 app.get('/', async (req, res) => {
     res.json({
         message: 'AUTH SERVER',
@@ -182,7 +128,6 @@ app.get('/profile', isAuthenticated, (req, res) => {
     res.json({ message: 'This is a protected route', user: req.user });
 });
 
-// Error Handler
 app.use((err, req, res, next) => {
     console.error(err);
     res.status(500).json({ message: 'Server error', error: err.message });
