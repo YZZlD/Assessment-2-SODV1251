@@ -77,11 +77,11 @@ app.get('/signup', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'html/signup.html'));
 });
 
-app.post('/signup', [validator.check('username').isLength({min: 5}), validator.check('password').isLength({min: 5})], async (req, res) => {
+app.post('/signup', [validator.check('username').isLength({min: 5}).withMessage("Username must be at least 5 characters."), validator.check('password').isLength({min: 5}).withMessage("Password must be at least 5 characters."), validator.check('email').isEmail().withMessage('Please enter a valid email.')], async (req, res) => {
     try {
         const errors = validator.validationResult(req);
         if(!errors.isEmpty()) return res.status(400).json({errors: errors.array()})
-        const { username, password } = req.body;
+        const { username, password, email } = req.body;
 
         const hashedPass = await bcrypt.hash(password, saltRounds);
         const pool = await poolPromise;
@@ -89,8 +89,9 @@ app.post('/signup', [validator.check('username').isLength({min: 5}), validator.c
 
         request.input('username', sql.VarChar, username);
         request.input('password', sql.VarChar, hashedPass);
+        request.input('email', sql.VarChar, email);
 
-        await request.query('INSERT INTO Users (Username, Password) VALUES (@username, @password)');
+        await request.query('INSERT INTO Users (Username, Password, Email) VALUES (@username, @password, @email)');
         res.status(201).json({ message: 'User created successfully' });
     } catch (err) {
         res.status(500).json({ message: 'Signup failed', error: err.message });
@@ -106,7 +107,7 @@ app.get('/logout', (req, res) => {
     });
 });
 
-app.get('/events', isAuthenticated, async(req, res) => {
+app.get('/events', async(req, res) => {
     try{
         const pool = await poolPromise;
         const events = await pool.query('SELECT * FROM Events');
@@ -119,12 +120,13 @@ app.get('/events', isAuthenticated, async(req, res) => {
 
         events.recordset.forEach(event => {
             eventList += `
-                <div style="border: solid 1px #ddd; padding: 10px; display: flex; flex-direction: column; align-items: center;">
+                <div style="position: relative; border: solid 1px #ddd; padding: 10px; display: flex; flex-direction: column; align-items: center;">
                     <h1 style="font-size: 18px; text-align: center;">${event.EventName}</h1>
                     <h2 style="font-size: 14px; text-align: center;">${event.EventDateTime}</h2>
                     <h3 style="font-size: 14px; text-align: center;">${event.EventLocation}</h3>
                     <p style="font-size: 14px; text-align: center;">${event.EventDescription}</p>
                     <img src="uploads/${event.EventImageSrc}" style="width: 100%; height: auto; max-width: 500px; max-height: 200px" alt="Event Image">
+                    <p style="position: absolute; top: 0px; left: 10px; font-size: 12px; color: #555;">Event ID: ${event.Id}</p>
                 </div>
             `;
         });
@@ -163,11 +165,11 @@ app.get('/events/:id', isAuthenticated, async(req, res) => {
     }
 });
 
-app.get('/createEvent', async(req, res) => {
+app.get('/createEvent', isAuthenticated, async(req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'html/createEvent.html'));
 });
 
-app.post('/createEvent', upload.single('eventImage'), async (req, res) => {
+app.post('/createEvent', isAuthenticated, upload.single('eventImage'), async (req, res) => {
     try{
         const { eventName, eventDateTime, eventLocation, eventDescription } = req.body;
         const pool = await poolPromise;
@@ -184,10 +186,43 @@ app.post('/createEvent', upload.single('eventImage'), async (req, res) => {
     {
         res.status(500).json({message: "Error while creating event."})
     }
+});
+
+app.put('/events/:id', async(req, res) => {
+    try{
+        const { eventName, eventDateTime, eventLocation, eventDescription} = req.body;
+        console.log(eventName, eventDateTime, eventLocation, eventDescription);
+
+        const pool = await poolPromise;
+        const request = pool.request();
+
+        request.input('EventName', sql.VarChar, eventName);
+        request.input('EventDateTime', sql.DateTime, eventDateTime);
+        request.input('EventLocation', sql.VarChar, eventLocation);
+        request.input('EventDescription', sql.VarChar, eventDescription);
+        request.input('Id', sql.Int, req.params.id);
+        await request.query(`UPDATE Events SET EventName = @EventName, EventDateTime = @EventDateTime, EventLocation = @EventLocation, EventDescription = @EventDescription WHERE Id = @Id`);
+
+        res.status(204).json({ message: "Successfully updated event." })
+    }catch(err)
+    {
+        res.status(500).json({ message: "Error while updating event." })
+    }
 
 
+});
 
-})
+app.delete('/events/:id', isAuthenticated, async(req, res) => {
+    try{
+        const pool = await poolPromise;
+        await pool.query(`DELETE FROM Events WHERE Id = ${req.params.id}`);
+
+        res.status(204).json({ message: 'Event deleted successfully.' });
+    }catch(err)
+    {
+        res.status(500).json({ message: 'Error while deleting event.' });
+    }
+});
 
 app.use((err, req, res, next) => {
     console.error(err);
