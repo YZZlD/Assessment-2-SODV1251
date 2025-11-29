@@ -52,6 +52,7 @@ app.get('/', async (req, res) => {
 });
 
 app.get('/login', (req, res) => {
+    if(req.isAuthenticated()) return res.send('Currently logged in.');
     res.sendFile(path.join(__dirname, 'public', 'html/login.html'));
 });
 
@@ -105,7 +106,7 @@ app.get('/logout', (req, res) => {
     });
 });
 
-app.get('/events', async(req, res) => {
+app.get('/events', isAuthenticated, async(req, res) => {
     try{
         const pool = await poolPromise;
         const events = await pool.query('SELECT * FROM Events');
@@ -123,7 +124,7 @@ app.get('/events', async(req, res) => {
                     <h2 style="font-size: 14px; text-align: center;">${event.EventDateTime}</h2>
                     <h3 style="font-size: 14px; text-align: center;">${event.EventLocation}</h3>
                     <p style="font-size: 14px; text-align: center;">${event.EventDescription}</p>
-                    <img src="uploads/cat.png" style="width: 100%; height: auto; max-width: 500px; max-height: 200px" alt="Event Image">
+                    <img src="uploads/${event.EventImageSrc}" style="width: 100%; height: auto; max-width: 500px; max-height: 200px" alt="Event Image">
                 </div>
             `;
         });
@@ -162,7 +163,31 @@ app.get('/events/:id', isAuthenticated, async(req, res) => {
     }
 });
 
+app.get('/createEvent', async(req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'html/createEvent.html'));
+});
 
+app.post('/createEvent', upload.single('eventImage'), async (req, res) => {
+    try{
+        const { eventName, eventDateTime, eventLocation, eventDescription } = req.body;
+        const pool = await poolPromise;
+        const request = pool.request();
+        request.input('EventName', sql.VarChar, eventName);
+        request.input('EventDateTime', sql.DateTime, eventDateTime);
+        request.input('EventLocation', sql.VarChar, eventLocation);
+        request.input('EventDescription', sql.VarChar, eventDescription);
+        request.input('EventImageSrc', sql.VarChar, req.file.originalname);
+
+        await request.query('INSERT INTO Events (EventName, EventDateTime, EventLocation, EventDescription, EventImageSrc) VALUES (@EventName, @EventDateTime, @EventLocation, @EventDescription, @EventImageSrc)');
+        res.status(201).redirect('/events');
+    }catch(err)
+    {
+        res.status(500).json({message: "Error while creating event."})
+    }
+
+
+
+})
 
 app.use((err, req, res, next) => {
     console.error(err);

@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Create Event</title>
+    </head>
+
+    <body>
+        <h1 style="text-align: center; font-family: Arial, sans-serif; color: #333;">Create Event</h1>
+
+        <form action="/createEvent" method="post" enctype="multipart/form-data" style="max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9; border-radius: 8px; box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1); font-family: Arial, sans-serif;">
+            <div style="margin-bottom: 15px;">
+                <label for="eventName" style="display: block; font-size: 16px; color: #555;">Event Name</label>
+                <input type="text" id="eventName" name="eventName" placeholder="Enter event name" style="width: 100%; padding: 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;" required>
+            </div>
+
+            <div style="margin-bottom: 15px;">
+                <label for="eventDateTime" style="display: block; font-size: 16px; color: #555;">Event Date & Time</label>
+                <input type="datetime-local" id="eventDateTime" name="eventDateTime" style="width: 100%; padding: 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;" required>
+            </div>
+
+            <div style="margin-bottom: 15px;">
+                <label for="eventLocation" style="display: block; font-size: 16px; color: #555;">Location</label>
+                <input type="text" id="eventLocation" name="eventLocation" placeholder="Enter location" style="width: 100%; padding: 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;" required>
+            </div>
+
+            <div style="margin-bottom: 15px;">
+                <label for="eventDescription" style="display: block; font-size: 16px; color: #555;">Description</label>
+                <input type="text" id="eventDescription" name="eventDescription" placeholder="Event description" style="width: 100%; padding: 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;" required>
+            </div>
+
+            <div style="margin-bottom: 15px;">
+                <label for="eventImage" style="display: block; font-size: 16px; color: #555;">Upload Event Image</label>
+                <input type="file" id="eventImage" name="eventImage" style="padding: 5px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;" required>
+            </div>
+
+            <div style="text-align: center;">
+                <button type="submit" value="submit" style="padding: 10px 20px; background-color: #007bff; color: white; border: none; border-radius: 4px; font-size: 16px; cursor: pointer;">Create Event</button>
+            </div>
+        </form>
+    </body>
+</html>
