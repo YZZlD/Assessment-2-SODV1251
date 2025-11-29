@@ -9,6 +9,7 @@ const validator = require('express-validator')
 const transporter = require('./transporter.js')
 const passport = require('./passportConfig.js')
 const upload = require('./upload.js');
+const EventEmitter = require('events')
 
 const saltRounds = 10;
 const app = express();
@@ -31,6 +32,24 @@ app.use(session({
 
 app.use(passport.initialize());
 app.use(passport.session());
+
+const eventAddedEmitter = new EventEmitter();
+
+eventAddedEmitter.on('eventAdded', (data) => {
+    console.log(data.email);
+    let message = {
+        from: 'Angelina Botsford <angelina.botsford@ethereal.email>',
+        to: `${data.username} <${data.email}>`,
+        subject: 'Event creation confirmation',
+        text: `Hello ${data.username}.\nThank you for creating ${data.eventName}. Your event is scheduled for ${new Date(data.eventDateTime).toLocaleString()} at ${data.eventLocation}.`
+    };
+
+    transporter.sendMail(message, (err, info) => {
+        if(err) {
+            console.log('Error occured. ' + err.message);
+        }
+    })
+});
 
 const poolPromise = new sql.ConnectionPool(config)
     .connect()
@@ -107,7 +126,7 @@ app.get('/logout', (req, res) => {
     });
 });
 
-app.get('/events', async(req, res) => {
+app.get('/events', isAuthenticated, async(req, res) => {
     try{
         const pool = await poolPromise;
         const events = await pool.query('SELECT * FROM Events');
@@ -181,6 +200,7 @@ app.post('/createEvent', isAuthenticated, upload.single('eventImage'), async (re
         request.input('EventImageSrc', sql.VarChar, req.file.originalname);
 
         await request.query('INSERT INTO Events (EventName, EventDateTime, EventLocation, EventDescription, EventImageSrc) VALUES (@EventName, @EventDateTime, @EventLocation, @EventDescription, @EventImageSrc)');
+        eventAddedEmitter.emit('eventAdded', {username: req.user.Username, eventName: eventName, eventDateTime: eventDateTime, eventLocation: eventLocation, email: req.user.Email});
         res.status(201).redirect('/events');
     }catch(err)
     {
