@@ -6,8 +6,9 @@ const cors = require('cors');
 const path = require('path');
 const config = require('./config.js');
 const validator = require('express-validator')
-const transporter = require('./transporter')
-const passport = require('./passportConfig')
+const transporter = require('./transporter.js')
+const passport = require('./passportConfig.js')
+const upload = require('./upload.js');
 
 const saltRounds = 10;
 const app = express();
@@ -43,35 +44,15 @@ function isAuthenticated(req, res, next) {
     if (req.isAuthenticated()) {
         return next();
     }
-    res.status(401).json({ message: 'Not authenticated' });
+    res.redirect('/login');
 }
 
 app.get('/', async (req, res) => {
-    res.json({
-        message: 'AUTH SERVER',
-        authenticated: req.isAuthenticated(),
-        user: req.user || null
-    });
-
-    let message = {
-        from: 'Sender Name <sender@example.com>',
-        to: 'Recipient <recipient@example.com>',
-        subject: 'Nodemailer is unicode friendly ✔',
-        text: 'Hello to myself!',
-        html: '<p><b>Hello</b> to myself!</p>'
-    }
-    await transporter.sendMail(message, (err, info) => {
-        if(err) {
-            console.log('Error occured. ' + err.message);
-        }
-
-        console.log('Message sent: %s', info.messageId);
-        console.log('Preview URL: %s', nodemailer.getTestMessageUrl(info));
-    })
+    res.redirect('/events')
 });
 
 app.get('/login', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'login.html'));
+    res.sendFile(path.join(__dirname, 'public', 'html/login.html'));
 });
 
 app.post('/login', (req, res, next) => {
@@ -86,13 +67,13 @@ app.post('/login', (req, res, next) => {
             if (err) {
                 return res.status(500).json({ message: 'Login failed' });
             }
-            return res.json({ message: 'Login successful', user: req.user });
+            res.redirect('/events');
         });
     })(req, res, next);
 });
 
 app.get('/signup', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'signup.html'));
+    res.sendFile(path.join(__dirname, 'public', 'html/signup.html'));
 });
 
 app.post('/signup', [validator.check('username').isLength({min: 5}), validator.check('password').isLength({min: 5})], async (req, res) => {
@@ -124,9 +105,64 @@ app.get('/logout', (req, res) => {
     });
 });
 
-app.get('/profile', isAuthenticated, (req, res) => {
-    res.json({ message: 'This is a protected route', user: req.user });
+app.get('/events', async(req, res) => {
+    try{
+        const pool = await poolPromise;
+        const events = await pool.query('SELECT * FROM Events');
+
+        let eventList = `
+        <html>
+            <body>
+                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 20px; padding: 20px;">
+        `;
+
+        events.recordset.forEach(event => {
+            eventList += `
+                <div style="border: solid 1px #ddd; padding: 10px; display: flex; flex-direction: column; align-items: center;">
+                    <h1 style="font-size: 18px; text-align: center;">${event.EventName}</h1>
+                    <h2 style="font-size: 14px; text-align: center;">${event.EventDateTime}</h2>
+                    <h3 style="font-size: 14px; text-align: center;">${event.EventLocation}</h3>
+                    <p style="font-size: 14px; text-align: center;">${event.EventDescription}</p>
+                    <img src="uploads/cat.png" style="width: 100%; height: auto; max-width: 500px; max-height: 200px" alt="Event Image">
+                </div>
+            `;
+        });
+        //
+        eventList += `
+                </div>
+            </body>
+        </html>
+        `;
+
+        res.send(`${eventList}`);
+
+
+    }catch(err){
+        res.status(500).json({message: 'Error getting events.'});
+    }
 });
+
+app.get('/events/:id', isAuthenticated, async(req, res) => {
+    try{
+        const pool = await poolPromise;
+        const request = pool.request();
+        request.input('id', sql.Int, req.params.id);
+
+        const result = await request.query('SELECT * FROM Events WHERE Id = @id');
+
+
+        if(result.recordset.length == 0)
+        {
+            res.status(400).json({message: 'Event could not be found.'});
+        }
+        const event = result.recordset[0];
+        res.status(200).json(event);
+    }catch(err) {
+        res.status(500).json({message: 'Error getting event.'});
+    }
+});
+
+
 
 app.use((err, req, res, next) => {
     console.error(err);
