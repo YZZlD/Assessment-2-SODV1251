@@ -244,6 +244,10 @@ app.delete('/events/:id', isAuthenticated, async(req, res) => {
     }
 });
 
+app.use((req, res, next) => {
+    res.status(404).send("Page not found.")
+})
+
 app.use((err, req, res, next) => {
     console.error(err);
     res.status(500).json({ message: 'Server error', error: err.message });
